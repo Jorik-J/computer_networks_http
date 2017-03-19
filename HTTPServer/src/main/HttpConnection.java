@@ -1,37 +1,35 @@
 package main;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Instant;
-import java.time.ZoneId;
+import java.text.SimpleDateFormat;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.Locale;
+import java.util.TimeZone;
 
 public class HttpConnection implements Runnable {
 
-	private static String PATH = "files/";
+	private final String PATH = "files/" + "bauwen.github.io";
 	
 	private Socket socket;
 	private BufferedInputStream request;
-	private PrintWriter response;
-	
-	private String webpage;
+	private BufferedOutputStream response;
 	
 	public HttpConnection(Socket socket) throws IOException {
 		this.socket = socket;
 		this.request = new BufferedInputStream(socket.getInputStream());
-		this.response = new PrintWriter(socket.getOutputStream());
-		
-		//this.webpage = new String(Files.readAllBytes(Paths.get("C:/Users/bauwe_000/Desktop/files/www.google.be/index.html")));
+		this.response = new BufferedOutputStream(socket.getOutputStream());
 	}
 	
 	@Override
@@ -41,21 +39,21 @@ public class HttpConnection implements Runnable {
 				
 				// read the request
 				
-				String requestLine = null;
-				while (requestLine == null) {
-					requestLine = readLine(request);
+				String requestLine = readLine();
+				
+				if (requestLine == null) {
+					break;
 				}
 				
-				System.out.println("rl: " + requestLine.getBytes()[0]);
 				String[] parts = requestLine.replaceAll("\\s+", " ").split(" ");
 				String method = parts[0];
-				String path = parts[1];
+				String path = parts[1].replaceAll("%20", " ");
 				String version = parts[2];
 				
 				HashMap<String, String> headers = new HashMap<>();
 				
 				while (true) {
-					String line = readLine(request);
+					String line = readLine();
 					
 					if (line.length() == 0) {
 						break;
@@ -64,10 +62,7 @@ public class HttpConnection implements Runnable {
 					parseHeader(headers, line);
 				}
 				
-				
-				for (String name : headers.keySet()) {
-					System.out.println(name + ": " + headers.get(name));
-				}
+				String message = null;
 				
 				if (method.equals("POST") || method.equals("PUT")) {
 					if (!headers.containsKey("content-length")) {
@@ -75,97 +70,286 @@ public class HttpConnection implements Runnable {
 					}
 					
 					int contentLength = Integer.parseInt(headers.get("content-length"));
-					//byte[] body = readCount(request, contentLength);
-					String body = readLine(request);
-					
-					writeTextFile(method + ".txt", body);
-					
-					System.out.println("BODY: " + body);
+					message = new String(readCount(contentLength), StandardCharsets.UTF_8);
 				}
 				
+				
+				// print the request
+				
+				System.out.println(requestLine);
+				
+				for (String name : headers.keySet()) {
+					System.out.println(name + ": " + headers.get(name));
+				}
+				
+				System.out.println("");
+				
+				if (message != null) {
+					System.out.println(message);
+				}
+				
+				
+				// write the appropriate response
+				
 				if (!version.equals("HTTP/1.1")) {
-					System.out.println("NOT HTTP/1.1! But " + version);
-					response.println("HTTP/1.1 501 Not Implemented");
-					response.println("");
-					response.flush();
+					writeResponse("text/html", 501);
 					continue;
 				}
 				
-				
-				// write the response
-				
-				String message = "oeps!";
-				
-				if (path.equals("/")) {
-					message = "<h1>Zalig!</h1><br>Dit is <b>fijn</b>, niet?";
-				} else {
-					message = "Klik <a href='www.google.be'>hier</a>!";
+				if (!headers.containsKey("host")) {
+					writeResponse("text/html", 400);
+					continue;
 				}
 				
-				String date = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC));
+				if (path.endsWith("/")) {
+					path += "index.html";
+				}
 				
-				response.println("HTTP/1.1 200 OK");
-				response.println("Date: " + date);
-				response.println("Content-Type: text/html");
-				response.println("Content-Length: " + message.getBytes().length);
-				response.println("");
-				response.println(message);
-				response.flush();
+				File file = new File(PATH + path);
+				
+				if (method.equals("HEAD") || method.equals("GET")) {
+					if (!file.exists()) {
+						if (method.equals("HEAD")) {
+							writeResponseHeaders("text/html", 404);
+						} else {
+							writeResponse("text/html", 404);
+						}
+						
+						continue;
+					}
+					
+					boolean isModified = true;
+					
+					if (headers.containsKey("if-modified-since")) {
+						String dateString = headers.get("if-modified-since");
+						ZonedDateTime zdt = ZonedDateTime.parse(dateString, DateTimeFormatter.RFC_1123_DATE_TIME);
+						long time = Date.from(zdt.toInstant()).getTime();
+						long lastTime = file.lastModified();
+						
+						isModified = (time < lastTime);
+					}
+					
+					if (isModified) {
+						String mime = getMIME(path);
+						byte[] content = Files.readAllBytes(Paths.get(file.getPath()));
+						
+						if (method.equals("HEAD")) {
+							writeResponseHeaders(mime, 200, content);
+						} else {
+							writeResponse(mime, 200, content);
+						}
+					} else {
+						if (method.equals("HEAD")) {
+							writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
+						} else {
+							writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
+						}
+					}
+				} else {
+					if (method.equals("PUT")) {
+						writeTextFile(PATH + path, message);
+						writeResponse("text/plain", 200, message.getBytes());
+					}
+					else if (file.exists()) {
+						String content = new String(Files.readAllBytes(Paths.get(file.getPath())));
+						writeTextFile(PATH + path, content + message);
+						writeResponse("text/plain", 200, (content + message).getBytes());
+					}
+					else {
+						writeResponse("text/html", 404);
+					}
+				}
+			}
+		} catch (IOException e) {}
+		
+		close();
+	}
+	
+	private void writeResponseHeaders(String mime, int statusCode) throws IOException {
+		writeResponse(mime, statusCode, null, null, true);
+	}
+	
+	private void writeResponseHeaders(String mime, int statusCode, byte[] message) throws IOException {
+		writeResponse(mime, statusCode, message, null, true);
+	}
+	
+	private void writeResponseHeaders(String mime, int statusCode, byte[] message, Date lastModified) throws IOException {
+		writeResponse(mime, statusCode, message, lastModified, true);
+	}
+	
+	private void writeResponse(String mime, int statusCode) throws IOException {
+		writeResponse(mime, statusCode, null, null, false);
+	}
+	
+	private void writeResponse(String mime, int statusCode, byte[] message) throws IOException {
+		writeResponse(mime, statusCode, message, null, false);
+	}
+	
+	private void writeResponse(String mime, int statusCode, byte[] message, Date lastModified, boolean HEAD) throws IOException {
+		String body = "<h1>200 OK</h1>";
+		
+		switch (statusCode) {
+		case 200:
+			writeLine("HTTP/1.1 200 OK");
+			break;
+			
+		case 304:
+			writeLine("HTTP/1.1 304 Not Modified");
+			
+			if (lastModified != null) {
+			    SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+			    dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+			    
+			    writeLine("Last-Modified: " + dateFormat.format(lastModified));
 			}
 			
+			body = "<h1>304 Not Modified</h1>";
+			break;
+			
+		case 400:
+			writeLine("HTTP/1.1 400 Bad Request");
+			body = "<h1>400 Bad Request</h1>";
+			break;
+			
+		case 404:
+			writeLine("HTTP/1.1 404 Not Found");
+			body = "<h1>404 Not Found</h1>";
+			break;
+			
+		case 501:
+			writeLine("HTTP/1.1 501 Not Implemented");
+			body = "<h1>501 Not Implemented</h1>";
+			break;
+		
+		case 500:
+		default:
+			writeLine("HTTP/1.1 500 Server Error");
+			body = "<h1>500 Server Error</h1>";
+			break;
+		}
+		
+		if (message == null) {
+			message = String.join("\n", new String[]{
+				"<!DOCTYPE html>",
+				"<head>",
+				"  <meta charset='utf-8'>",
+				"  <title>" + statusCode + "</title>",
+				"</head>",
+				"<body>",
+				"",
+				body,
+				"",
+				"</body>",
+				"</html>"
+			}).getBytes();
+		}
+		
+		String date = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC));
+		
+		writeLine("Date: " + date);
+		writeLine("Content-Type: " + mime);
+		writeLine("Content-Length: " + message.length);
+		writeLine("");
+		
+		if (!HEAD) {
+			response.write(message);
+		}
+		
+		response.flush();
+	}
+	
+	private void close() {
+		try {
 			request.close();
 			response.close();
 			socket.close();
-		} catch (IOException e) {
-			return;
-		}
+		} catch (IOException e) {}
 	}
 	
-	private static void parseHeader(HashMap<String, String> headers, String line) {
-		String[] parts = line.split(":");
+	private void parseHeader(HashMap<String, String> headers, String line) {
+		int index = line.indexOf(":");		
+		String name = line.substring(0, index).trim().toLowerCase();
+		String value = line.substring(index + 1).trim();
 		
-		headers.put(parts[0].trim().toLowerCase(), parts[1].trim());
+		headers.put(name, value);
 	}
 	
-	private static String readLine(BufferedInputStream bis) throws IOException {
+	private String readLine() throws IOException {
 		String line = "";
-		int o = bis.read();
 		
-		while (o != -1) {
+		while (true) {
+			int o = request.read();
+			
+			if (o == -1) {
+				break;
+			}
+			
 			char c = (char) o;
 			
-			// dit stond er: b == '\r' && c == '\n' (CRLF en enkel LF worden geaccepteerd)
 			if (c == '\n') {
 				return line.trim();
 			}
 			
-			line += c;
-			o = bis.read();
+			if (c != '\r') {
+				line += c;
+			}
 		}
 		
 		return null;
 	}
 	
-	private static byte[] readCount(BufferedInputStream bis, int count) throws IOException {
+	private byte[] readCount(int count) throws IOException {
 		byte[] body = new byte[count];
 		
 		for (int i = 0; i < count; i++) {
-			body[i] = (byte) bis.read();
+			body[i] = (byte) request.read();
 		}
 		
 		return body;
 	}
 	
-	private static void writeTextFile(String path, String content) {
+	private void writeLine(String string) throws IOException {
+		byte[] bytes = (string + "\r\n").getBytes();
+		response.write(bytes);
+	}
+	
+	private String getMIME(String name) {
+		int index = name.lastIndexOf(".");
+		
+		if (index < 0) {
+			return "application/octet-stream";
+		}
+		
+		String extension = name.substring(index + 1);
+		
+		switch (extension) {
+		case "html":
+			return "text/html";
+			
+		case "txt":
+			return "text/plain";
+			
+		case "png":
+			return "image/png";
+		
+		case "jpg":
+			return "image/jpg";
+			
+		default:
+			return "application/octet-stream";
+		}
+	}
+	
+	private void writeTextFile(String path, String content) {
 		try {
-			File file = new File(PATH + path);
+			File file = new File(path);
 			file.getParentFile().mkdirs();
 			
 			FileWriter out = new FileWriter(file);
 			out.write(content);
 			out.close();
 			
-			System.out.println("TEXT FILE CREATED: " + PATH + path);
+			System.out.println("TEXT FILE CREATED: " + path);
 		} catch (Exception e) {
 			System.out.println("Error: couldn't save text file '" + path + "'.");
 		}

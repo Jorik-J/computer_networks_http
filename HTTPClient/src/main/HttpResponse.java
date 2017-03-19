@@ -1,21 +1,18 @@
 package main;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 
 public class HttpResponse {
 	
 	private String method;
-	private URI uri;
 	private String statusLine;
 	private int statusCode;
 	private HashMap<String, String> headers;
 	private byte[] body = null;
 	
-	public HttpResponse(String method, URI uri, String statusLine, HashMap<String, String> headers, byte[] body) {
+	public HttpResponse(String method, String statusLine, HashMap<String, String> headers, byte[] body) {
 		this.method = method;
-		this.uri = uri;
 		this.statusLine = statusLine;
 		this.statusCode = Integer.parseInt(statusLine.replaceAll("\\s+", " ").split(" ")[1]);
 		this.headers = new HashMap<String, String>(headers);
@@ -27,10 +24,6 @@ public class HttpResponse {
 
 	public String getMethod() {
 		return method;
-	}
-	
-	public URI getURI() {
-		return uri;
 	}
 
 	public String getStatusLine() {

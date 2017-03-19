@@ -6,18 +6,17 @@ import java.net.Socket;
 
 public class Main {
 	
-	// TODO: als geen host staat in HTTP, geef error terug (evt statuscode)
-
 	public static void main(String[] args) throws IOException {
-		@SuppressWarnings("resource")
 		ServerSocket serverSocket = new ServerSocket(8000);
-		System.out.println("Listening...");
+		System.out.println("Listening on port 8000...");
 		
-		while (true) {
-			Socket socket = serverSocket.accept();
-			System.out.println("Someone connected!");
-			
-			new Thread(new HttpConnection(socket)).start();
+		try {
+			while (true) {
+				Socket socket = serverSocket.accept();
+				new Thread(new HttpConnection(socket)).start();
+			}
+		} catch (IOException e) {
+			serverSocket.close();
 		}
 	}
 }

@@ -3,41 +3,23 @@ package main;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Scanner;
 
 public class Main {
 	
-	/*
-	 * 
-	 * Vragen:
-	 * bedoelen ze met "embedded objects" enkel diegene die relatief zijn aan de website zelf,
-	 * maw diegene die op dezelfde server staan en via HTTP/1.1 direct ook kunnen worden opgehaald?
-	 * In dat geval moet implementatie nog wel aangepast worden (geen aparte requests sturen!)
-	 * (Zou logisch zijn om hierarchische mappenstructuur op computer op te slaan en daarna terug te
-	 * gebruiken voor de server, die de website opnieuw zou willen "uitzenden")
-	 * 
-	 * Bijhouden wanneer file voor het laatst is aangepast: moeten we kijken in de properties
-	 * van die file? (voor if-modified-since header)
-	 * 
-	 * 
-	 * TODO:
-	 * HTTP/1.0: Not Supported teruggeven
-	 * Relatieve paden enkel beschouwen: hou socket open (HTTP/1.1!)
-	 * Geen rekening houden met "speciale" gevallen (verkeerde geformatteerde dingen) -- wordt getest met browser
-	 * not-modified-since header implementeren (kijken naar bestand-properties)
-	 * 
-	 */
+	private static final String PATH = "files/";
 	
-	public static String PATH = "files/";
+	private static HttpConnection connection;
+	private static String host;
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws IOException {
 		
-		// get command line arguments
+		// get the command line arguments
 		
 		if (args.length < 2) {
 			System.out.println("Error: expected at least 2 arguments.");
@@ -55,24 +37,30 @@ public class Main {
 			return;
 		}
 		
-		int port = 80;
+		int port = uri.getPort();
 		
 		if (args.length > 2) {
 			port = Integer.parseInt(args[2]);
+		} else if (port < 0) {
+			port = 80;
 		}
 		
+		host = uri.getHost();
+		connection = new HttpConnection(host, port);
 		
-		// send the HTTP request
 		
+		// send the request
+		
+		String path = uri.getPath();
 		HttpResponse response;
 		
 		switch (command) {
 		case "HEAD":
-			response = Http.HEAD(uri, port);
+			response = connection.HEAD(path);
 			break;
 			
 		case "GET":
-			response = Http.GET(uri, port);
+			response = connection.GET(path);
 			break;
 			
 		case "POST":
@@ -82,20 +70,22 @@ public class Main {
 			String message = reader.nextLine();
 			
 			if (command.equals("POST")) {
-				response = Http.POST(uri, port, message);
+				response = connection.POST(path, message);
 			} else {
-				response = Http.PUT(uri, port, message);
+				response = connection.PUT(path, message);
 			}
 			
 			break;
 			
 		default:
 			System.out.println("Error: invalid command '" + command + "' (expected 'HEAD', 'GET', 'POST' or 'PUT').");
+			connection.close();
 			return;
 		}
 		
 		if (response == null) {
 			System.out.println("Error: something went wrong handling the request.");
+			connection.close();
 			return;
 		}
 		
@@ -114,96 +104,116 @@ public class Main {
 		
 		if (response.hasBody()) {
 			System.out.println(response.getBodyAsText());
-			
-			
-			// search for embedded objects and save to local files
-			
-			searchAndSave(uri.getHost(), response);
-		}
-	}
-	
-	public static void searchAndSave(String directory, HttpResponse response) {
-		if (response == null) {
-			return;
 		}
 		
+		
+		// save to local file system and, if possible, search for embedded images
+		
+		if (command.equals("GET") && response.hasBody()) {
+			saveAndSearch(response, path);
+		}
+		
+		
+		// close the connection
+		
+		connection.close();
+	}
+	
+	private static void saveAndSearch(HttpResponse response, String path) {
 		HashMap<String, String> headers = response.getHeaders();
 		String contentType = headers.get("content-type");
 		
 		if (contentType == null) {
 			contentType = "application/octet-stream";
 		} else {
-			int index = contentType.indexOf(";");
-			if (index >= 0) {
-				contentType = contentType.substring(0, index).trim();
-			}
+			contentType = contentType.split(";")[0].trim();
 		}
 		
-		URI uri = response.getURI();
-		String base = parseBase(uri.getPath());
+		String filename = host + path + (path.endsWith("/") ? "index.html" : "");
 		
 		if (!isTextType(contentType)) {
-			writeBinaryFile(directory + "/" + base, response.getBody());
+			writeBinaryFile(filename, response.getBody());
 			return;
 		}
 		
 		String content = response.getBodyAsText();
-		writeTextFile(directory + "/" + base, content);
+		writeTextFile(filename, content);
 		
 		if (!contentType.equals("text/html")) {
 			return;
 		}
 		
-		ArrayList<String> objects = new ArrayList<>();
-		
-		searchImages(objects, content);
-		//searchHTML? (<iframe>)
-		//searchAudio? (<audio>)
-		//searchVideo? (<video>)
-		
-		for (String object : objects) {
-			String protocol = uri.getScheme() + "://";
-			String host = uri.getHost();
-			String absolutePath = getAbsolutePath(protocol + host, object);
+		ArrayList<String> images = searchImages(content);
+		for (String image : images) {
 			
-			try {
-				uri = new URI(absolutePath);
-			} catch (URISyntaxException e) {
-				e.printStackTrace();
-				System.out.println("Invalid object uri found: " + absolutePath);
-				return;
+			HttpResponse imageResponse = connection.GET(image);
+			
+			if (imageResponse != null) {
+				saveAndSearch(imageResponse, image);
 			}
-			
-			int port = uri.getPort();
-			HttpResponse objectResponse = Http.GET(uri, port < 0 ? 80 : port);
-			
-			searchAndSave(directory, objectResponse);
 		}
 	}
 	
-	public static void searchImages(ArrayList<String> objects, String html) {
+	private static ArrayList<String> searchImages(String html) {
+		ArrayList<String> images = new ArrayList<>();
 		String tag = searchTag(html, "img");
 		
 		while (tag != null) {
-			String[] parts = tag.split(" ");
+			int index = tag.indexOf("src");
+			int state = 0;
+			String uri = "";
+			String quote = "";
 			
-			for (String part : parts) {
-				if (part.startsWith("src")) {
-					String[] src = part.split("="); // TODO: kan spatie voor of achter bevatten
-					
-					if (src.length == 2) {
-						String uri = src[1].trim();
-						objects.add(uri.substring(1, uri.length() - 1));
+			for (int i = index + 3; i < tag.length(); i++) {
+				char c = tag.charAt(i);
+				
+				if (state == 0) {
+					if (c == '=') {
+						state = 1;
+					}
+					else if (c != ' ') {
+						break;
 					}
 				}
+				else if (c == '"' || c == "'".charAt(0)) {
+					if (quote.length() == 0) {
+						quote += c;
+						state = 2;
+					}
+					else if (quote.equals(c + "")) {
+						state = 3;
+						break;
+					}
+					else {
+						uri += c;
+					}
+				}
+				else if (state == 2) {
+					uri += c;
+				}
+				else if (c != ' ') {
+					break;
+				}
+			}
+			
+			if (state == 3 && uri.indexOf("://") < 0) {
+				uri = uri.trim();
+				
+				if (!uri.startsWith("/")) {
+					uri = "/" + uri;
+				}
+				
+				images.add(uri);
 			}
 			
 			html = html.substring(html.indexOf("<img") + 4);
 			tag = searchTag(html, "img");
 		}
+		
+		return images;
 	}
 	
-	public static String searchTag(String html, String tagName) {
+	private static String searchTag(String html, String tagName) {
 		int index = html.indexOf("<" + tagName);
 		
 		if (index < 0) {
@@ -225,32 +235,11 @@ public class Main {
 		return null;
 	}
 	
-	public static boolean isTextType(String mime) {
+	private static boolean isTextType(String mime) {
 		return mime.split("/")[0].equals("text");
 	}
 	
-	public static String parseBase(String path) {
-		String base = path.substring(path.lastIndexOf("/") + 1);
-		
-		if (base.equals("")) {
-			return "index.html";
-		}
-		
-		return base;
-	}
-	
-	public static String getAbsolutePath(String prefix, String name) {
-		String absolutePath = name;
-		
-		int index = absolutePath.indexOf("://");
-		if (index < 0) {
-			absolutePath = Paths.get(prefix, absolutePath).toString();
-		}
-		
-		return absolutePath;
-	}
-	
-	public static void writeTextFile(String path, String content) {
+	private static void writeTextFile(String path, String content) {
 		try {
 			File file = new File(PATH + path);
 			file.getParentFile().mkdirs();
@@ -261,11 +250,11 @@ public class Main {
 			
 			System.out.println("TEXT FILE CREATED: " + PATH + path);
 		} catch (Exception e) {
-			System.out.println("Error: couldn't save text file '" + path + "'.");
+			System.out.println("Error: couldn't save text file '" + PATH + path + "'.");
 		}
 	}
 	
-	public static void writeBinaryFile(String path, byte[] content) {
+	private static void writeBinaryFile(String path, byte[] content) {
 		try {
 			File file = new File(PATH + path);
 			file.getParentFile().mkdirs();
@@ -276,7 +265,7 @@ public class Main {
 		    
 		    System.out.println("BINARY FILE CREATED: " + PATH + path);
 		} catch (Exception e) {
-			System.out.println("Error: couldn't save binary file '" + path + "'.");
+			System.out.println("Error: couldn't save binary file '" + PATH + path + "'.");
 		}
 	}
 }
