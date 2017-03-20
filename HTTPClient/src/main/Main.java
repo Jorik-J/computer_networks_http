@@ -129,7 +129,7 @@ public class Main {
 			contentType = contentType.split(";")[0].trim();
 		}
 		
-		String filename = host + path + (path.endsWith("/") ? "index.html" : "");
+		String filename = addExtension(host + path + (path.endsWith("/") ? "index.html" : ""), contentType);
 		
 		if (!isTextType(contentType)) {
 			writeBinaryFile(filename, response.getBody());
@@ -237,6 +237,17 @@ public class Main {
 	
 	private static boolean isTextType(String mime) {
 		return mime.split("/")[0].equals("text");
+	}
+	
+	private static String addExtension(String name, String contentType) {
+		String fullname = name;
+		
+		if (contentType.equals("text/html")) {
+			int index = name.lastIndexOf(".");
+			fullname = (index < 0 ? name : name.substring(0, index)) + ".html";
+		}
+		
+		return fullname;
 	}
 	
 	private static void writeTextFile(String path, String content) {

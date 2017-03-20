@@ -20,16 +20,18 @@ import java.util.TimeZone;
 
 public class HttpConnection implements Runnable {
 
-	private final String PATH = "files/" + "bauwen.github.io";
+	private final String PATH;
 	
 	private Socket socket;
 	private BufferedInputStream request;
 	private BufferedOutputStream response;
 	
-	public HttpConnection(Socket socket) throws IOException {
+	public HttpConnection(Socket socket, String path) throws IOException {
 		this.socket = socket;
 		this.request = new BufferedInputStream(socket.getInputStream());
 		this.response = new BufferedOutputStream(socket.getOutputStream());
+		
+		PATH = "files/" + path;
 	}
 	
 	@Override
@@ -333,7 +335,19 @@ public class HttpConnection implements Runnable {
 			return "image/png";
 		
 		case "jpg":
-			return "image/jpg";
+			return "image/jpeg";
+			
+		case "gif":
+			return "image/gif";
+			
+		case "bmp":
+			return "image/bmp";
+			
+		case "mp3":
+			return "audio/mpeg";
+			
+		case "mp4":
+			return "video/mp4";
 			
 		default:
 			return "application/octet-stream";
