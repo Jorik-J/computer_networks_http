@@ -17,11 +17,17 @@ public class Main {
 		
 		String path = args[0];
 		
+		int port = 8000;
+		
+		if (args.length > 1) {
+			port = Integer.parseInt(args[1]);
+		}
+		
 		
 		// setup the server
 		
-		ServerSocket serverSocket = new ServerSocket(8000);
-		System.out.println("Listening on port 8000...");
+		ServerSocket serverSocket = new ServerSocket(port);
+		System.out.println("Listening on port " + port + "...");
 		
 		try {
 			while (true) {

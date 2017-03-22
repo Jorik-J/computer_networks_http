@@ -7,7 +7,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-public class HttpConnection {
+public class HttpConnection { // TODO: voeg query aan URI toe (test met google.be om image te verkrijgen)
 	
 	private String host;
 	private int port;
@@ -91,7 +91,7 @@ public class HttpConnection {
 			
 			byte[] body = null;
 			
-			if (!method.equals("HEAD") && statusCode != 501) {
+			if (!method.equals("HEAD") && 200 <= statusCode && statusCode < 400) {
 				if (headers.containsKey("content-length")) {
 					int contentLength = Integer.parseInt(headers.get("content-length")); 
 					body = readCount(contentLength);
@@ -102,6 +102,11 @@ public class HttpConnection {
 				else {
 					return null;
 				}
+			}
+			
+			if (statusCode == 302) {
+				// TODO: redirect
+				return readResponse("GET");
 			}
 			
 			return new HttpResponse(method, statusLine, headers, body);

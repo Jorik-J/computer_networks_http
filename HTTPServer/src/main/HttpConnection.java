@@ -141,11 +141,7 @@ public class HttpConnection implements Runnable {
 							writeResponse(mime, 200, content);
 						}
 					} else {
-						if (method.equals("HEAD")) {
-							writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
-						} else {
-							writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
-						}
+						writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
 					}
 				} else {
 					if (method.equals("PUT")) {

@@ -6,6 +6,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Scanner;
@@ -27,11 +28,17 @@ public class Main {
 		}
 		
 		String command = args[0];
+		String uriString = args[1];
+		
+		int index = uriString.indexOf("://");
+		if (index < 0) {
+			uriString = "http://" + uriString;
+		}
 		
 		URI uri;
 		
 		try {
-			uri = new URI(args[1]);
+			uri = new URI(uriString);
 		} catch (URISyntaxException e) {
 			System.out.println("Error: invalid URI given.");
 			return;
@@ -46,13 +53,22 @@ public class Main {
 		}
 		
 		host = uri.getHost();
-		connection = new HttpConnection(host, port);
 		
+		try {
+			connection = new HttpConnection(host, port);	
+		} catch (UnknownHostException e) {
+			System.out.println("Error: invalid URI given.");
+			return;
+		}
 		
 		// send the request
 		
 		String path = uri.getPath();
 		HttpResponse response;
+		
+		if (path.length() == 0) {
+			path = "/";
+		}
 		
 		switch (command) {
 		case "HEAD":
@@ -144,8 +160,8 @@ public class Main {
 		}
 		
 		ArrayList<String> images = searchImages(content);
+		
 		for (String image : images) {
-			
 			HttpResponse imageResponse = connection.GET(image);
 			
 			if (imageResponse != null) {
