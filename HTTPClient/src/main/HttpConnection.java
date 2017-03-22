@@ -7,7 +7,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-public class HttpConnection { // TODO: voeg query aan URI toe (test met google.be om image te verkrijgen)
+public class HttpConnection {
 	
 	private String host;
 	private int port;
