@@ -157,6 +157,10 @@ public class HttpConnection implements Runnable {
 						writeResponse("text/html", 404);
 					}
 				}
+				
+				if (headers.containsKey("connection") && headers.get("connection").equals("close")) {
+				    break;
+				}
 			}
 		} catch (IOException e) {}
 		

@@ -4,8 +4,11 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
+
 
 public class HttpConnection {
 	
@@ -55,15 +58,15 @@ public class HttpConnection {
 	}
 	
 	private void writeRequest(String method, String path, String message) {
-		request.println(method + " " + path + " HTTP/1.1");
-		request.println("Host: " + host + ":" + port);
+		request.print(method + " " + path + " HTTP/1.1\r\n");
+		request.print("Host: " + host + ":" + port + "\r\n");
 		
 		if (message != null) {
-			request.println("Content-Type: text/plain; charset=utf-8");
-			request.println("Content-Length: " + message.getBytes().length);
+			request.print("Content-Type: text/plain; charset=utf-8\r\n");
+			request.print("Content-Length: " + message.getBytes().length + "\r\n");
 		}
 		
-		request.println("");
+		request.print("\r\n");
 		
 		if (message != null) {
 			request.print(message);
@@ -91,7 +94,7 @@ public class HttpConnection {
 			
 			byte[] body = null;
 			
-			if (!method.equals("HEAD") && 200 <= statusCode && statusCode < 400) {
+			if (!method.equals("HEAD")) {
 				if (headers.containsKey("content-length")) {
 					int contentLength = Integer.parseInt(headers.get("content-length")); 
 					body = readCount(contentLength);
@@ -104,9 +107,29 @@ public class HttpConnection {
 				}
 			}
 			
-			if (statusCode == 302) {
-				// TODO: redirect
-				return readResponse("GET");
+			if (statusCode == 301 || statusCode == 302 && headers.containsKey("location")) {
+			    String location = headers.get("location");
+			    
+			    
+			    try {
+			        URI uri = new URI(location);
+			        
+			        String host = uri.getHost();
+			        int port = uri.getPort();
+			        String path = uri.getPath();
+			        
+			        HttpConnection connection = new HttpConnection(host, port < 0 ? 80 : port);
+
+			        switch (method) {
+			        case "HEAD":
+			            System.out.println("Redirected to " + location);
+			            return connection.HEAD(path);
+			            
+			        case "GET":
+			            System.out.println("Redirected to " + location);
+			            return connection.GET(path);
+			        }
+			    } catch (URISyntaxException e) {}
 			}
 			
 			return new HttpResponse(method, statusLine, headers, body);
@@ -116,7 +139,12 @@ public class HttpConnection {
 	}
 
 	private void parseHeader(HashMap<String, String> headers, String line) {
-		int index = line.indexOf(":");		
+		int index = line.indexOf(":");
+		
+		if (index < 0) {
+			return;
+		}
+		
 		String name = line.substring(0, index).trim().toLowerCase();
 		String value = line.substring(index + 1).trim();
 		

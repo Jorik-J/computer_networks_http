@@ -3,6 +3,20 @@ package main;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 
+/**
+ * Represents an HTTP response. An instance contains the following information:<br><br>
+ * <ul>
+ * 	<li>An HTTP method (e.g. "GET")</li>
+ *  <li>A status line (e.g. "HTTP/1.1 200 OK")</li>
+ *  <li>A status code</li>
+ *  <li>An associative array containing the headers (key: header field, value: header value)</li>
+ *  <li>An optional body (may be null when absent)</li>
+ * </lu>
+ * <br>
+ * 
+ * @author Bauwen Demol (r0583318)
+ * @author Jorik Jooken (r0588270)
+ */
 public class HttpResponse {
 	
 	private String method;
