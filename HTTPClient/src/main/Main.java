@@ -17,7 +17,6 @@ import java.util.Scanner;
  * @author Bauwen Demol (r0583318)
  * @author Jorik Jooken (r0588270)
  */
-
 public class Main {
 	
 	private static final String PATH = "files/";
@@ -28,8 +27,8 @@ public class Main {
 	/**
 	 * The main function of the client program.
 	 * 
-	 * It expects at least 2 command-line arguments (the HTTP method and the URI) and
-	 * optionally a third argument indicating the port.
+	 * Expects at least 2 command-line arguments (the HTTP method and the URI) and
+	 * optionally a third argument indicating the port number.
 	 * 
 	 * @param args
 	 * 		The command-line arguments
@@ -155,11 +154,11 @@ public class Main {
 	}
 	
 	/**
-	 * Saves the body of the given response to the given relative path and
-	 * if the content-type is HTML, searches for embedded images and GETs them recursively.
+	 * Saves the body of the given response to the given relative path.
+	 * If the content-type is HTML, it searches for embedded images and GETs them iteratively.
 	 * 
 	 * @param response
-	 * 		The HTTP response to use
+	 * 		The {@link HttpResponse} to use
 	 * @param path
 	 * 		The relative path to save the body to
 	 */
@@ -206,11 +205,12 @@ public class Main {
 	 * Searches for relative URI's of embedded images inside the given HTML string and
 	 * returns them in a list.
 	 * 
-	 * More specifically, this function returns the value of the src-attribute found
-	 * in img-tags.
+	 * More specifically, this function returns the value of the "src" and "lowsrc" attributes
+	 * found in "img" tags.
 	 * 
 	 * @param html
 	 * 		The HTML string to scan
+	 * 
 	 * @return
 	 * 		A list containing all the relative image URI's found
 	 */
@@ -292,8 +292,8 @@ public class Main {
 	 * 		The HTML tag name to search
 	 * 
 	 * @return
-	 * 		The raw content found within the opening tag (excluding 
-	 * 		the angle brackets and the tag name itself)
+	 * 		The raw content found within the opening tag (excluding the angle brackets and the tag name itself)
+	 * 		or null if no tag is found
 	 */
 	private static String searchTag(String html, String tagName) {
 		int index = html.toLowerCase().indexOf("<" + tagName);
@@ -330,6 +330,19 @@ public class Main {
 		return mime.split("/")[0].equals("text");
 	}
 	
+	/**
+	 * Returns the given name with its extension changed to .html if
+	 * the content type is HTML.
+	 * 
+	 * @param name
+	 * 		The name of the resource to change the extension of
+	 * @param contentType
+	 * 		A MIME string representing the content type
+	 * 
+	 * @return
+	 * 		The possibly modified resource name. It is only modified
+	 * 		if the content type is HTML, otherwise it returns the original name
+	 */
 	private static String addExtension(String name, String contentType) {
 		String fullname = name;
 		
@@ -346,7 +359,6 @@ public class Main {
 	 * 
 	 * @param path
 	 * 		The relative path to write the file to	
-	 * 
 	 * @param content
 	 * 		The textual content to write to the file
 	 */
@@ -372,7 +384,6 @@ public class Main {
 	 * 
 	 * @param path
 	 * 		The relative path to write the file to
-	 * 
 	 * @param content
 	 * 		The binary content to write to the file
 	 */

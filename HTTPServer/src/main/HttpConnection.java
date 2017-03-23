@@ -18,6 +18,12 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.TimeZone;
 
+/**
+ * Represents an HTTP/1.1 persistent server connection.
+ * 
+ * @author Bauwen Demol (r0583318)
+ * @author Jorik Jooken (r0588270)
+ */
 public class HttpConnection implements Runnable {
 
 	private final String PATH;
@@ -26,6 +32,16 @@ public class HttpConnection implements Runnable {
 	private BufferedInputStream request;
 	private BufferedOutputStream response;
 	
+	/**
+	 * Constructs an HttpConnection from the given components.
+	 * 
+	 * @param socket
+	 * 		The socket the connection will use
+	 * @param path
+	 * 		The path containing the relative location of the local web server
+	 * 
+	 * @throws IOException
+	 */
 	public HttpConnection(Socket socket, String path) throws IOException {
 		this.socket = socket;
 		this.request = new BufferedInputStream(socket.getInputStream());
@@ -34,6 +50,9 @@ public class HttpConnection implements Runnable {
 		PATH = "files/" + path;
 	}
 	
+	/**
+	 * Runs the thread handling the connection with a client.
+	 */
 	@Override
 	public void run() {
 		try {
@@ -41,44 +60,18 @@ public class HttpConnection implements Runnable {
 				
 				// read the request
 				
-				String requestLine = readLine();
+				HttpRequest request = readRequest();
 				
-				if (requestLine == null) {
+				if (request == null) {
 					break;
-				}
-				
-				String[] parts = requestLine.replaceAll("\\s+", " ").split(" ");
-				String method = parts[0];
-				String path = parts[1].replaceAll("%20", " ");
-				String version = parts[2];
-				
-				HashMap<String, String> headers = new HashMap<>();
-				
-				while (true) {
-					String line = readLine();
-					
-					if (line.length() == 0) {
-						break;
-					}
-					
-					parseHeader(headers, line);
-				}
-				
-				String message = null;
-				
-				if (method.equals("POST") || method.equals("PUT")) {
-					if (!headers.containsKey("content-length")) {
-						break;
-					}
-					
-					int contentLength = Integer.parseInt(headers.get("content-length"));
-					message = new String(readCount(contentLength), StandardCharsets.UTF_8);
 				}
 				
 				
 				// print the request
 				
-				System.out.println(requestLine);
+				System.out.println(request.getRequestLine());
+				
+				HashMap<String, String> headers = request.getHeaders();
 				
 				for (String name : headers.keySet()) {
 					System.out.println(name + ": " + headers.get(name));
@@ -86,80 +79,17 @@ public class HttpConnection implements Runnable {
 				
 				System.out.println("");
 				
-				if (message != null) {
-					System.out.println(message);
+				if (request.hasBody()) {
+					System.out.println(request.getBody());
 				}
 				
 				
 				// write the appropriate response
 				
-				if (!version.equals("HTTP/1.1")) {
-					writeResponse("text/html", 501);
-					continue;
-				}
+				boolean closed = writeResponse(request);
 				
-				if (!headers.containsKey("host")) {
-					writeResponse("text/html", 400);
-					continue;
-				}
-				
-				if (path.endsWith("/")) {
-					path += "index.html";
-				}
-				
-				File file = new File(PATH + path);
-				
-				if (method.equals("HEAD") || method.equals("GET")) {
-					if (!file.exists()) {
-						if (method.equals("HEAD")) {
-							writeResponseHeaders("text/html", 404);
-						} else {
-							writeResponse("text/html", 404);
-						}
-						
-						continue;
-					}
-					
-					boolean isModified = true;
-					
-					if (headers.containsKey("if-modified-since")) {
-						String dateString = headers.get("if-modified-since");
-						ZonedDateTime zdt = ZonedDateTime.parse(dateString, DateTimeFormatter.RFC_1123_DATE_TIME);
-						long time = Date.from(zdt.toInstant()).getTime();
-						long lastTime = file.lastModified();
-						
-						isModified = (time < lastTime);
-					}
-					
-					if (isModified) {
-						String mime = getMIME(path);
-						byte[] content = Files.readAllBytes(Paths.get(file.getPath()));
-						
-						if (method.equals("HEAD")) {
-							writeResponseHeaders(mime, 200, content);
-						} else {
-							writeResponse(mime, 200, content);
-						}
-					} else {
-						writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
-					}
-				} else {
-					if (method.equals("PUT")) {
-						writeTextFile(PATH + path, message);
-						writeResponse("text/plain", 200, message.getBytes());
-					}
-					else if (file.exists()) {
-						String content = new String(Files.readAllBytes(Paths.get(file.getPath())));
-						writeTextFile(PATH + path, content + message);
-						writeResponse("text/plain", 200, (content + message).getBytes());
-					}
-					else {
-						writeResponse("text/html", 404);
-					}
-				}
-				
-				if (headers.containsKey("connection") && headers.get("connection").equals("close")) {
-				    break;
+				if (closed) {
+					break;
 				}
 			}
 		} catch (IOException e) {}
@@ -167,26 +97,233 @@ public class HttpConnection implements Runnable {
 		close();
 	}
 	
+	/**
+	 * Reads the request from the connection's input stream.
+	 * 
+	 * @return
+	 * 		An {@link HttpRequest} or null if the input stream is closed
+	 * 
+	 * @throws IOException
+	 */
+	private HttpRequest readRequest() throws IOException {
+		String requestLine = readLine();
+		
+		if (requestLine == null) {
+			return null;
+		}
+		
+		String[] parts = requestLine.replaceAll("\\s+", " ").split(" ");
+		String method = parts[0];
+		String path = parts[1].replaceAll("%20", " ");
+		String version = parts[2];
+		
+		HashMap<String, String> headers = new HashMap<>();
+		
+		while (true) {
+			String line = readLine();
+			
+			if (line.length() == 0) {
+				break;
+			}
+			
+			parseHeader(headers, line);
+		}
+		
+		String message = null;
+		
+		if (method.equals("POST") || method.equals("PUT")) {
+			if (!headers.containsKey("content-length")) {
+				return null;
+			}
+			
+			int contentLength = Integer.parseInt(headers.get("content-length"));
+			message = new String(readCount(contentLength), StandardCharsets.UTF_8);
+		}
+		
+		return new HttpRequest(requestLine, method, path, version, headers, message);
+	}
+	
+	/**
+	 * Writes the appropriate response to the connection's output stream.
+	 * 
+	 * @param request
+	 * 		The {@link HttpRequest} determining the type of the response
+	 * 
+	 * @return
+	 * 		A boolean indicating whether the client requested to close the connection
+	 * 
+	 * @throws IOException
+	 */
+	public boolean writeResponse(HttpRequest request) throws IOException {
+		if (!request.getVersion().equals("HTTP/1.1")) {
+			writeResponse("text/html", 501);
+			return false;
+		}
+		
+		HashMap<String, String> headers = request.getHeaders();
+		
+		if (!headers.containsKey("host")) {
+			writeResponse("text/html", 400);
+			return false;
+		}
+		
+		String method = request.getMethod();
+		String path = request.getPath();
+		
+		if (path.endsWith("/")) {
+			path += "index.html";
+		}
+		
+		File file = new File(PATH + path);
+		
+		if (method.equals("HEAD") || method.equals("GET")) {
+			if (!file.exists()) {
+				if (method.equals("HEAD")) {
+					writeResponseHeaders("text/html", 404);
+				} else {
+					writeResponse("text/html", 404);
+				}
+				
+				return false;
+			}
+			
+			boolean isModified = true;
+			
+			if (headers.containsKey("if-modified-since")) {
+				String dateString = headers.get("if-modified-since");
+				ZonedDateTime zdt = ZonedDateTime.parse(dateString, DateTimeFormatter.RFC_1123_DATE_TIME);
+				long time = Date.from(zdt.toInstant()).getTime();
+				long lastTime = file.lastModified();
+				
+				isModified = (time < lastTime);
+			}
+			
+			if (isModified) {
+				String mime = getMIME(path);
+				byte[] content = Files.readAllBytes(Paths.get(file.getPath()));
+				
+				if (method.equals("HEAD")) {
+					writeResponseHeaders(mime, 200, content);
+				} else {
+					writeResponse(mime, 200, content);
+				}
+			} else {
+				writeResponseHeaders("text/html", 304, null, new Date(file.lastModified()));
+			}
+		} else {
+			String message = request.getBody();
+			
+			if (method.equals("PUT")) {
+				writeTextFile(PATH + path, message);
+				writeResponse("text/plain", 200, message.getBytes());
+			}
+			else if (file.exists()) {
+				String content = new String(Files.readAllBytes(Paths.get(file.getPath())));
+				writeTextFile(PATH + path, content + message);
+				writeResponse("text/plain", 200, (content + message).getBytes());
+			}
+			else {
+				writeResponse("text/html", 404);
+			}
+		}
+		
+		return headers.containsKey("connection") && headers.get("connection").equals("close");
+	}
+	
+	/**
+	 * Writes the response only containing headers to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponseHeaders(String mime, int statusCode) throws IOException {
 		writeResponse(mime, statusCode, null, null, true);
 	}
 	
+	/**
+	 * Writes the response only containing headers to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * @param message
+	 * 		The message of the response
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponseHeaders(String mime, int statusCode, byte[] message) throws IOException {
 		writeResponse(mime, statusCode, message, null, true);
 	}
 	
+	/**
+	 * Writes the response only containing headers to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * @param message
+	 * 		The message of the response
+	 * @param lastModified
+	 * 		The date of the last modification of the resource composing the given message
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponseHeaders(String mime, int statusCode, byte[] message, Date lastModified) throws IOException {
 		writeResponse(mime, statusCode, message, lastModified, true);
 	}
 	
+	/**
+	 * Writes the response (with body) to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponse(String mime, int statusCode) throws IOException {
 		writeResponse(mime, statusCode, null, null, false);
 	}
 	
+	/**
+	 * Writes the response (with body) to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * @param message
+	 * 		The message of the response
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponse(String mime, int statusCode, byte[] message) throws IOException {
 		writeResponse(mime, statusCode, message, null, false);
 	}
 	
+	/**
+	 * Writes the response to the connection's output stream.
+	 * 
+	 * @param mime
+	 * 		The MIME type of the response
+	 * @param statusCode
+	 * 		The status code of the response
+	 * @param message
+	 * 		The message of the response
+	 * @param lastModified
+	 * 		The date of the last modification of the resource composing the given message
+	 * @param HEAD
+	 * 		A boolean that indicates whether it is a HEAD request (thus omitting the response body)
+	 * 
+	 * @throws IOException
+	 */
 	private void writeResponse(String mime, int statusCode, byte[] message, Date lastModified, boolean HEAD) throws IOException {
 		String body = "<h1>200 OK</h1>";
 		
@@ -260,6 +397,12 @@ public class HttpConnection implements Runnable {
 		response.flush();
 	}
 	
+	/**
+	 * Closes the HTTP connection.
+	 * After this call, the connection cannot be used anymore.
+	 * 
+	 * @throws IOException
+	 */
 	private void close() {
 		try {
 			request.close();
@@ -268,6 +411,15 @@ public class HttpConnection implements Runnable {
 		} catch (IOException e) {}
 	}
 	
+	/**
+	 * Parses the given line and puts the field and value of the header into the given map.
+	 * It links the field name (key) of the header to the value (value) of the header.
+	 * 
+	 * @param headers
+	 * 		A map to put the parsed headers in
+	 * @param line
+	 * 		A line that represents an unparsed header
+	 */
 	private void parseHeader(HashMap<String, String> headers, String line) {
 		int index = line.indexOf(":");		
 		String name = line.substring(0, index).trim().toLowerCase();
@@ -276,6 +428,14 @@ public class HttpConnection implements Runnable {
 		headers.put(name, value);
 	}
 	
+	/**
+	 * Reads a line from the connection's input stream.
+	 * 
+	 * @return
+	 * 		The line that has been read or null if the input stream is closed
+	 * 
+	 * @throws IOException
+	 */
 	private String readLine() throws IOException {
 		String line = "";
 		
@@ -300,6 +460,18 @@ public class HttpConnection implements Runnable {
 		return null;
 	}
 	
+	/**
+	 * Reads the given number of bytes from the connection's input stream.
+	 * Used when "Content-Length" header is present
+	 * 
+	 * @param count
+	 * 		The number of bytes to read
+	 * 
+	 * @return
+	 * 		An array of bytes that has been read
+	 * 
+	 * @throws IOException
+	 */
 	private byte[] readCount(int count) throws IOException {
 		byte[] body = new byte[count];
 		
@@ -310,11 +482,28 @@ public class HttpConnection implements Runnable {
 		return body;
 	}
 	
+	/**
+	 * Writes a line to the connection's output stream.
+	 * 
+	 * @param string
+	 * 		The line to write
+	 * 
+	 * @throws IOException
+	 */
 	private void writeLine(String string) throws IOException {
 		byte[] bytes = (string + "\r\n").getBytes();
 		response.write(bytes);
 	}
 	
+	/**
+	 * Returns the MIME type of the given extension name.
+	 * 
+	 * @param name
+	 * 		The name of a resource extension
+	 * 
+	 * @return
+	 * 		The MIME type of the given extension name
+	 */
 	private String getMIME(String name) {
 		int index = name.lastIndexOf(".");
 		
@@ -354,6 +543,14 @@ public class HttpConnection implements Runnable {
 		}
 	}
 	
+	/**
+	 * Writes a text file with the given content to the given relative path.
+	 * 
+	 * @param path
+	 * 		The relative path to write the file to	
+	 * @param content
+	 * 		The textual content to write to the file
+	 */
 	private void writeTextFile(String path, String content) {
 		try {
 			File file = new File(path);
