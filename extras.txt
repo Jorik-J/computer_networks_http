@@ -1,0 +1,72 @@
+/* REDIRECTION ~ line 109 in client's HttpConnection */
+
+if (statusCode == 301 || statusCode == 302 && headers.containsKey("location")) {
+    String location = headers.get("location");
+    
+    
+    try {
+        URI uri = new URI(location);
+        
+        String host = uri.getHost();
+        int port = uri.getPort();
+        String path = uri.getPath();
+        
+        HttpConnection connection = new HttpConnection(host, port < 0 ? 80 : port);
+
+        switch (method) {
+        case "HEAD":
+            System.out.println("Redirected to " + location);
+            return connection.HEAD(path);
+            
+        case "GET":
+            System.out.println("Redirected to " + location);
+            return connection.GET(path);
+        }
+    } catch (URISyntaxException e) {}
+}
+
+
+
+
+/* GETTING "url(..)" IMAGES AS WELL ~ line 231 in client's Main (+ at start: String content = html) */
+
+while (true) {
+    int index = content.indexOf("url(");
+    
+    if (index < 0) {
+        break;
+    }
+    
+    String uri = "";
+    
+    for (int i = index + 4; i < content.length(); i++) {
+        char c = content.charAt(i);
+        
+        if (c == ')') {
+            break;
+        }
+        
+        uri += c;
+    }
+    
+    uri = uri.trim();
+    
+    if (uri.length() > 0 && uri.indexOf("://") < 0) {
+        if (!uri.startsWith("/")) {
+            uri = "/" + uri;
+        }
+        
+        images.add(uri);
+    }
+    
+    content = content.substring(index + 4);
+}
+
+
+
+
+/* "Connection: close" should stop server connection ~ line 161 in server's HttpConnection */
+
+if (headers.containsKey("connection") && headers.get("connection").equals("close")) {
+    break;
+}
