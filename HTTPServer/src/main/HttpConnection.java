@@ -106,6 +106,9 @@ public class HttpConnection implements Runnable {
 	 * @throws IOException
 	 */
 	private HttpRequest readRequest() throws IOException {
+		
+		// read the request line and the headers
+		
 		String requestLine = readLine();
 		
 		if (requestLine == null) {
@@ -129,6 +132,9 @@ public class HttpConnection implements Runnable {
 			parseHeader(headers, line);
 		}
 		
+		
+		// read the body if present and possible to extract
+		
 		String message = null;
 		
 		if (method.equals("POST") || method.equals("PUT")) {
@@ -139,6 +145,9 @@ public class HttpConnection implements Runnable {
 			int contentLength = Integer.parseInt(headers.get("content-length"));
 			message = new String(readCount(contentLength), StandardCharsets.UTF_8);
 		}
+		
+		
+		// construct and return the request
 		
 		return new HttpRequest(requestLine, method, path, version, headers, message);
 	}
@@ -508,7 +517,7 @@ public class HttpConnection implements Runnable {
 		int index = name.lastIndexOf(".");
 		
 		if (index < 0) {
-			return "application/octet-stream";
+			return "text/html";
 		}
 		
 		String extension = name.substring(index + 1);
@@ -559,8 +568,6 @@ public class HttpConnection implements Runnable {
 			FileWriter out = new FileWriter(file);
 			out.write(content);
 			out.close();
-			
-			System.out.println("TEXT FILE CREATED: " + path);
 		} catch (Exception e) {
 			System.out.println("Error: couldn't save text file '" + path + "'.");
 		}

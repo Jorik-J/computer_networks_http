@@ -223,11 +223,11 @@ public class HttpConnection {
 
 			        switch (method) {
 			        case "HEAD":
-			            System.out.println("Redirected to " + location);
+			            System.out.println("Redirected to " + location + "\n");
 			            return connection.HEAD(path);
 			            
 			        case "GET":
-			            System.out.println("Redirected to " + location);
+			            System.out.println("Redirected to " + location + "\n");
 			            return connection.GET(path);
 			        }
 			    } catch (URISyntaxException e) {}

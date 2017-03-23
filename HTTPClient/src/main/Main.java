@@ -176,7 +176,7 @@ public class Main {
 			contentType = contentType.split(";")[0].trim();
 		}
 		
-		String filename = addExtension(host + path + (path.endsWith("/") ? "index.html" : ""), contentType);
+		String filename = host + addExtension(path + (path.endsWith("/") ? "index.html" : ""), contentType);
 		
 		if (!isTextType(contentType)) {
 			writeBinaryFile(filename, response.getBody());
@@ -348,7 +348,9 @@ public class Main {
 		
 		if (contentType.equals("text/html")) {
 			int index = name.lastIndexOf(".");
-			fullname = (index < 0 ? name : name.substring(0, index)) + ".html";
+			if (index >= 0) {
+				fullname = name.substring(0, index) + ".html";
+			}
 		}
 		
 		return fullname;
@@ -372,8 +374,6 @@ public class Main {
 			FileWriter out = new FileWriter(file);
 			out.write(content);
 			out.close();
-			
-			System.out.println("TEXT FILE CREATED: " + PATH + path);
 		} catch (Exception e) {
 			System.out.println("Error: couldn't save text file '" + PATH + path + "'.");
 		}
@@ -397,8 +397,6 @@ public class Main {
 			FileOutputStream out = new FileOutputStream(file);
 		    out.write(content);
 		    out.close();
-		    
-		    System.out.println("BINARY FILE CREATED: " + PATH + path);
 		} catch (Exception e) {
 			System.out.println("Error: couldn't save binary file '" + PATH + path + "'.");
 		}
