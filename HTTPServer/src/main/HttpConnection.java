@@ -409,8 +409,6 @@ public class HttpConnection implements Runnable {
 	/**
 	 * Closes the HTTP connection.
 	 * After this call, the connection cannot be used anymore.
-	 * 
-	 * @throws IOException
 	 */
 	private void close() {
 		try {

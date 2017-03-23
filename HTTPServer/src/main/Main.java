@@ -13,7 +13,7 @@ import java.net.Socket;
 public class Main {
 	
 	/**
-	 * The main function of the client program.
+	 * The main function of the server program.
 	 * 
 	 * Expects at least 1 command-line argument (the local host path representing the web server) and
 	 * optionally a second argument indicating the port number to use.
